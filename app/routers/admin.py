@@ -3,28 +3,34 @@
 Toutes les routes exigent le rôle ADMIN (dépendance `require_admin` au niveau du routeur).
 """
 
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.core.security import require_admin
 from app.db import get_db
-from app.models import Booking, BookingStatus, Movie, Room, Showtime
+from app.models import BookedSeat, Booking, BookingStatus, Movie, Room, Showtime
 from app.routers.bookings import to_out
 from app.schemas import (
     BookingOut,
     MovieCreate,
     MovieOut,
     MovieUpdate,
+    OccupancyItem,
+    OccupancyReport,
     RoomOut,
     ShowtimeCreate,
     ShowtimeOut,
     ShowtimeUpdate,
+    SlotOccupancy,
 )
 from app.services.booking import (
     BookingError,
+    as_utc,
     check_room_free,
     count_booked,
     ends_at_for,
@@ -33,6 +39,8 @@ from app.services.booking import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["Administration"], dependencies=[Depends(require_admin)])
+
+PEAK_THRESHOLD = 0.8
 
 
 def _http(exc: BookingError) -> HTTPException:
@@ -170,3 +178,74 @@ def list_bookings(
 
 
 # --- Taux de remplissage (US09) ---------------------------------------------------------
+def slot_of(starts_at: datetime) -> str:
+    """Regroupe les séances par créneau (heure locale du cinéma) pour repérer les pics."""
+    hour = as_utc(starts_at).astimezone(get_settings().tz).hour
+    if hour < 14:
+        return "Matin (< 14h)"
+    if hour < 18:
+        return "Après-midi (14h-18h)"
+    if hour < 21:
+        return "Soirée (18h-21h)"
+    return "Nuit (>= 21h)"
+
+
+def rate(booked: int, capacity: int) -> float:
+    return round(booked / capacity, 4) if capacity else 0.0
+
+
+@router.get("/stats/occupancy", response_model=OccupancyReport)
+def occupancy(
+    date_from: date | None = Query(default=None, description="Début (inclus)"),
+    date_to: date | None = Query(default=None, description="Fin (incluse)"),
+    db: Session = Depends(get_db),
+) -> OccupancyReport:
+    booked_sub = (
+        select(BookedSeat.showtime_id, func.count(BookedSeat.id).label("booked"))
+        .group_by(BookedSeat.showtime_id)
+        .subquery()
+    )
+    stmt = (
+        select(Showtime, func.coalesce(booked_sub.c.booked, 0))
+        .outerjoin(booked_sub, booked_sub.c.showtime_id == Showtime.id)
+        .options(selectinload(Showtime.movie), selectinload(Showtime.room))
+        .order_by(Showtime.starts_at)
+    )
+    if date_from:
+        stmt = stmt.where(Showtime.starts_at >= local_day_bounds(date_from)[0])
+    if date_to:
+        stmt = stmt.where(Showtime.starts_at < local_day_bounds(date_to)[1])
+
+    items: list[OccupancyItem] = []
+    slots: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])  # séances, réservées, capacité
+    for showtime, booked in db.execute(stmt).all():
+        capacity = showtime.room.capacity
+        r = rate(booked, capacity)
+        items.append(
+            OccupancyItem(
+                showtime_id=showtime.id,
+                movie_title=showtime.movie.title,
+                room=showtime.room.name,
+                starts_at=showtime.starts_at,
+                booked=booked,
+                capacity=capacity,
+                occupancy_rate=r,
+                peak=r >= PEAK_THRESHOLD,
+            )
+        )
+        agg = slots[slot_of(showtime.starts_at)]
+        agg[0] += 1
+        agg[1] += booked
+        agg[2] += capacity
+
+    total_booked = sum(i.booked for i in items)
+    total_capacity = sum(i.capacity for i in items)
+    return OccupancyReport(
+        global_rate=rate(total_booked, total_capacity),
+        peak_threshold=PEAK_THRESHOLD,
+        by_showtime=items,
+        by_slot=[
+            SlotOccupancy(slot=k, showtimes=v[0], booked=v[1], capacity=v[2], occupancy_rate=rate(v[1], v[2]))
+            for k, v in sorted(slots.items())
+        ],
+    )

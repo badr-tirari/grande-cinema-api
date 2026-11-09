@@ -125,3 +125,36 @@ def test_admin_bookings_list_and_filters(client, data, admin_headers, user_heade
     assert len(client.get("/api/admin/bookings", headers=admin_headers, params=params).json()) == 1
     params["status"] = "CANCELLED"
     assert client.get("/api/admin/bookings", headers=admin_headers, params=params).json() == []
+
+
+def test_occupancy_report(client, data, admin_headers, user_headers):
+    client.post(
+        "/api/bookings",
+        headers=user_headers,
+        json={"showtime_id": data["future"].id, "seat_ids": data["seats"][:5]},
+    )
+    report = client.get("/api/admin/stats/occupancy", headers=admin_headers).json()
+    item = next(i for i in report["by_showtime"] if i["showtime_id"] == data["future"].id)
+    assert item["booked"] == 5 and item["capacity"] == 6
+    assert item["occupancy_rate"] == round(5 / 6, 4)
+    assert item["peak"] is True
+    assert report["global_rate"] == round(5 / 12, 4)
+    assert sum(s["showtimes"] for s in report["by_slot"]) == 2
+
+    day = paris_day(data["future"].starts_at)
+    filtered = client.get(
+        "/api/admin/stats/occupancy",
+        headers=admin_headers,
+        params={"date_from": day, "date_to": day},
+    ).json()
+    assert [i["showtime_id"] for i in filtered["by_showtime"]] == [data["future"].id]
+
+
+def test_slot_and_rate_helpers():
+    from app.routers.admin import rate, slot_of
+
+    assert slot_of(datetime(2026, 7, 1, 10, tzinfo=PARIS)) == "Matin (< 14h)"
+    assert slot_of(datetime(2026, 7, 1, 15, tzinfo=PARIS)) == "Après-midi (14h-18h)"
+    assert slot_of(datetime(2026, 7, 1, 19, tzinfo=PARIS)) == "Soirée (18h-21h)"
+    assert slot_of(datetime(2026, 7, 1, 22, tzinfo=PARIS)) == "Nuit (>= 21h)"
+    assert rate(0, 0) == 0.0
