@@ -12,6 +12,7 @@ ignore = ["B008"]  # Depends() dans les signatures : idiome FastAPI
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q"
 filterwarnings = ["ignore::ResourceWarning"]
 
