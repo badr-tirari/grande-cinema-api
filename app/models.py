@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    TypeDecorator,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -20,6 +21,27 @@ from app.db import Base
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+class UTCDateTime(TypeDecorator):
+    """Date-heure stockée en UTC et toujours relue avec son fuseau.
+
+    PostgreSQL (timestamptz) conserve le fuseau, mais SQLite l'ignore : sans
+    normalisation, une séance à 20h45 (Paris) était relue comme 20h45 UTC.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(UTC)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value
 
 
 class Role(enum.StrEnum):
@@ -40,7 +62,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(120))
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(Enum(Role, name="user_role"), default=Role.USER)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     bookings: Mapped[list["Booking"]] = relationship(back_populates="user")
 
@@ -93,8 +115,8 @@ class Showtime(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"), index=True)
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id"), index=True)
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    ends_at: Mapped[datetime] = mapped_column(UTCDateTime())
     price_cents: Mapped[int] = mapped_column(Integer)
 
     movie: Mapped[Movie] = relationship(back_populates="showtimes")
@@ -118,7 +140,7 @@ class Booking(Base):
         Enum(BookingStatus, name="booking_status"), default=BookingStatus.CONFIRMED
     )
     total_cents: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="bookings")
     showtime: Mapped[Showtime] = relationship(back_populates="bookings")
