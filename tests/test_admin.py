@@ -3,6 +3,8 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from tests.conftest import paris_day
+
 PARIS = ZoneInfo("Europe/Paris")
 
 
@@ -11,7 +13,7 @@ def iso(dt):
 
 
 def test_admin_routes_forbidden_for_user(client, data, user_headers):
-    assert client.get("/api/admin/rooms", headers=user_headers).status_code == 403
+    assert client.get("/api/admin/bookings", headers=user_headers).status_code == 403
     assert client.get("/api/admin/rooms").status_code == 401
 
 
@@ -108,3 +110,18 @@ def test_update_showtime_into_overlap_is_refused(client, data, admin_headers):
         json={"starts_at": iso(data["future"].starts_at)},
     )
     assert r.status_code == 409
+
+
+def test_admin_bookings_list_and_filters(client, data, admin_headers, user_headers):
+    client.post(
+        "/api/bookings",
+        headers=user_headers,
+        json={"showtime_id": data["future"].id, "seat_ids": [data["seats"][0]]},
+    )
+    all_bookings = client.get("/api/admin/bookings", headers=admin_headers).json()
+    assert len(all_bookings) == 1 and all_bookings[0]["customer_email"] == "user@test.fr"
+    day = paris_day(data["future"].starts_at)
+    params = {"showtime_id": data["future"].id, "day": day, "status": "CONFIRMED"}
+    assert len(client.get("/api/admin/bookings", headers=admin_headers, params=params).json()) == 1
+    params["status"] = "CANCELLED"
+    assert client.get("/api/admin/bookings", headers=admin_headers, params=params).json() == []
