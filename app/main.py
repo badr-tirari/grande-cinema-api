@@ -10,12 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, engine
-from app.routers import auth
+from app.routers import auth, catalog
 
 settings = get_settings()
 
 TAGS = [
     {"name": "Authentification", "description": "US01 — inscription, connexion JWT, profil."},
+    {"name": "Catalogue", "description": "US02/US03 — films, séances et plan de salle (public)."},
 ]
 
 
@@ -43,6 +44,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(catalog.router)
 
 
 @app.get("/health", tags=["Supervision"])
