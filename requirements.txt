@@ -1,0 +1,9 @@
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+SQLAlchemy==2.1.8
+psycopg2-binary==2.9.13
+pydantic[email]==2.13.5
+pydantic-settings==2.16.2
+PyJWT==2.15.0
+bcrypt==4.0.1
+tzdata==2025.2
