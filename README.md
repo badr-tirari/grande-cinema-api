@@ -44,7 +44,7 @@ qu'une même place soit vendue deux fois pour une séance, même en cas de requ�
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\activate
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.lock      # versions figées et vérifiées par empreinte
 cp .env.example .env
 python -m scripts.seed
 uvicorn app.main:app --reload
@@ -59,8 +59,12 @@ ruff check .                                  # lint
 pytest --cov=app --cov-report=term-missing    # tests + couverture
 ```
 
-La CI GitHub Actions exécute lint, tests (couverture minimale 80 %) et l'analyse SonarCloud
-à chaque push et merge request sur `main` et `develop`.
+La CI GitHub Actions exécute le lint et les tests (couverture minimale 80 %) à chaque push et
+merge request sur `main` et `develop`. SonarCloud analyse automatiquement le dépôt (bugs,
+vulnérabilités, code smells, duplications) : https://sonarcloud.io/project/overview?id=badr-tirari_grande-cinema-api
+
+Dépendances : `requirements*.txt` déclarent les dépendances directes ; `requirements*.lock`
+(générés par `pip-compile --generate-hashes`) figent toutes les versions avec leurs empreintes.
 
 ## Déploiement (offres gratuites, sans carte bancaire)
 
