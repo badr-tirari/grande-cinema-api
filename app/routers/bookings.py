@@ -1,13 +1,14 @@
 """US04 - Réserver ; US05 - Billet dématérialisé ; US06 - Mes réservations / annulation."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db import get_db
 from app.models import Booking, Role, User
 from app.schemas import BookedSeatOut, BookingCreate, BookingOut
-from app.services.booking import BookingError, create_booking, load_booking
+from app.services.booking import BookingError, cancel_booking, create_booking, load_booking
 
 router = APIRouter(prefix="/api/bookings", tags=["Réservations"])
 
@@ -49,7 +50,27 @@ def book(payload: BookingCreate, user: User = Depends(get_current_user), db: Ses
     return to_out(load_booking(db, booking.id))
 
 
+@router.get("/me", response_model=list[BookingOut])
+def my_bookings(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Réservations de l'utilisateur connecté, les plus récentes d'abord."""
+    ids = db.scalars(
+        select(Booking.id).where(Booking.user_id == user.id).order_by(Booking.created_at.desc())
+    ).all()
+    return [to_out(load_booking(db, i)) for i in ids]
+
+
 @router.get("/{booking_id}", response_model=BookingOut)
 def get_ticket(booking_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Billet dématérialisé : le `code` est encodé en QR code par le front."""
     return to_out(_owned_booking(db, booking_id, user))
+
+
+@router.post("/{booking_id}/cancel", response_model=BookingOut)
+def cancel(booking_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Annule la réservation et libère les places."""
+    booking = _owned_booking(db, booking_id, user)
+    try:
+        cancel_booking(db, booking)
+    except BookingError as exc:
+        raise HTTPException(exc.status_code, exc.message) from None
+    return to_out(load_booking(db, booking_id))

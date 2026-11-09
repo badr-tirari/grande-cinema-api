@@ -1,5 +1,7 @@
 """US04 - Réserver ; US05 - Billet ; US06 - Mes réservations / annulation."""
 
+from datetime import UTC
+
 
 def book(client, headers, showtime_id, seat_ids):
     return client.post(
@@ -54,8 +56,38 @@ def test_max_seats_per_booking(client, data, user_headers, monkeypatch):
 
 def test_my_bookings_and_ticket(client, data, user_headers, other_headers):
     created = book(client, user_headers, data["future"].id, [data["seats"][0]]).json()
+    mine = client.get("/api/bookings/me", headers=user_headers).json()
+    assert [b["code"] for b in mine] == [created["code"]]
+    assert client.get("/api/bookings/me", headers=other_headers).json() == []
+
     ticket = client.get(f"/api/bookings/{created['id']}", headers=user_headers)
     assert ticket.status_code == 200
     assert ticket.json()["movie_title"] == "Blue Note Nights"
     # Un autre spectateur ne peut pas voir ce billet.
     assert client.get(f"/api/bookings/{created['id']}", headers=other_headers).status_code == 404
+
+
+def test_cancel_frees_seats(client, data, user_headers, other_headers):
+    created = book(client, user_headers, data["future"].id, [data["seats"][0]]).json()
+    r = client.post(f"/api/bookings/{created['id']}/cancel", headers=user_headers)
+    assert r.status_code == 200
+    assert r.json()["status"] == "CANCELLED"
+    assert r.json()["seats"] == []
+    # La place est de nouveau réservable.
+    assert book(client, other_headers, data["future"].id, [data["seats"][0]]).status_code == 201
+    # Une 2e annulation est refusée.
+    assert client.post(f"/api/bookings/{created['id']}/cancel", headers=user_headers).status_code == 400
+
+
+def test_cannot_cancel_someone_else_booking(client, data, user_headers, other_headers):
+    created = book(client, user_headers, data["future"].id, [data["seats"][0]]).json()
+    assert client.post(f"/api/bookings/{created['id']}/cancel", headers=other_headers).status_code == 404
+
+
+def test_cannot_cancel_started_showtime(client, db_session, data, user_headers):
+    from datetime import datetime, timedelta
+
+    created = book(client, user_headers, data["future"].id, [data["seats"][0]]).json()
+    data["future"].starts_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_session.commit()
+    assert client.post(f"/api/bookings/{created['id']}/cancel", headers=user_headers).status_code == 400
