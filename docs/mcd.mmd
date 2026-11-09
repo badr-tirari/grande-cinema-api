@@ -1,0 +1,60 @@
+erDiagram
+    USERS ||--o{ BOOKINGS : "effectue"
+    MOVIES ||--o{ SHOWTIMES : "est projeté lors de"
+    ROOMS ||--o{ SHOWTIMES : "accueille"
+    ROOMS ||--|{ SEATS : "contient"
+    SHOWTIMES ||--o{ BOOKINGS : "fait l'objet de"
+    BOOKINGS ||--o{ BOOKED_SEATS : "comprend"
+    SEATS ||--o{ BOOKED_SEATS : "est occupée par"
+    SHOWTIMES ||--o{ BOOKED_SEATS : "UNIQUE (seance, place)"
+
+    USERS {
+        int id PK
+        string email UK
+        string full_name
+        string hashed_password "bcrypt"
+        enum role "USER | ADMIN"
+        datetime created_at
+    }
+    MOVIES {
+        int id PK
+        string title
+        text description
+        string genre
+        int duration_min "> 0"
+        string poster_url
+    }
+    ROOMS {
+        int id PK
+        string name UK
+        int capacity "> 0"
+    }
+    SEATS {
+        int id PK
+        int room_id FK
+        string row_label
+        int number "UNIQUE (room_id, row_label, number)"
+    }
+    SHOWTIMES {
+        int id PK
+        int movie_id FK
+        int room_id FK
+        datetime starts_at
+        datetime ends_at "> starts_at"
+        int price_cents ">= 0"
+    }
+    BOOKINGS {
+        int id PK
+        string code UK "billet / QR code"
+        int user_id FK
+        int showtime_id FK
+        enum status "CONFIRMED | CANCELLED"
+        int total_cents
+        datetime created_at
+    }
+    BOOKED_SEATS {
+        int id PK
+        int booking_id FK
+        int showtime_id FK
+        int seat_id FK
+    }
