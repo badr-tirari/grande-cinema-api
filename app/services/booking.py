@@ -5,6 +5,7 @@ import string
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -76,7 +77,8 @@ def create_booking(db: Session, user: User, showtime_id: int, seat_ids: list[int
     """Réserve des places pour une séance (US04).
 
     Ordre des contrôles : séance existante, séance non commencée, nombre de places,
-    places appartenant bien à la salle, places libres.
+    places appartenant bien à la salle, places libres. La contrainte d'unicité
+    `uq_seat_per_showtime` couvre le cas de deux réservations simultanées.
     """
     settings = get_settings()
     showtime = get_showtime_or_404(db, showtime_id)
@@ -103,7 +105,12 @@ def create_booking(db: Session, user: User, showtime_id: int, seat_ids: list[int
     )
     booking.seats = [BookedSeat(showtime_id=showtime.id, seat_id=seat.id) for seat in seats]
     db.add(booking)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Une autre requête a pris la place entre la vérification et l'écriture.
+        db.rollback()
+        raise BookingError("Une ou plusieurs places viennent d'être réservées", 409) from None
     db.refresh(booking)
     return booking
 

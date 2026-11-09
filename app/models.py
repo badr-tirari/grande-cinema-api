@@ -126,7 +126,12 @@ class Booking(Base):
 
 
 class BookedSeat(Base):
-    """Place occupée pour une séance donnée."""
+    """Place occupée pour une séance donnée.
+
+    La contrainte d'unicité (showtime_id, seat_id) garantit, au niveau de la base,
+    qu'une même place ne peut pas être vendue deux fois pour une séance,
+    même si deux requêtes arrivent en même temps.
+    """
 
     __tablename__ = "booked_seats"
 
@@ -137,3 +142,5 @@ class BookedSeat(Base):
 
     booking: Mapped[Booking] = relationship(back_populates="seats")
     seat: Mapped[Seat] = relationship()
+
+    __table_args__ = (UniqueConstraint("showtime_id", "seat_id", name="uq_seat_per_showtime"),)
