@@ -7,9 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
-from app.models import Movie, Showtime
-from app.schemas import MovieOut, MovieWithShowtimes, ShowtimeOut
-from app.services.booking import count_booked, local_day_bounds
+from app.models import Movie, Room, Showtime
+from app.schemas import MovieOut, MovieWithShowtimes, SeatMap, SeatStatus, ShowtimeOut
+from app.services.booking import booked_seat_ids, count_booked, local_day_bounds
 
 router = APIRouter(prefix="/api", tags=["Catalogue"])
 
@@ -66,3 +66,24 @@ def list_showtimes(
     if movie_id:
         stmt = stmt.where(Showtime.movie_id == movie_id)
     return [_showtime_out(db, s) for s in db.scalars(stmt)]
+
+
+@router.get("/showtimes/{showtime_id}/seats", response_model=SeatMap)
+def seat_map(showtime_id: int, db: Session = Depends(get_db)) -> SeatMap:
+    """Plan de salle : chaque place avec sa disponibilité au moment de la requête."""
+    showtime = db.get(Showtime, showtime_id)
+    if showtime is None:
+        raise HTTPException(404, "Séance introuvable")
+    room: Room = showtime.room
+    taken = booked_seat_ids(db, showtime_id)
+    seats = [
+        SeatStatus(seat_id=s.id, row_label=s.row_label, number=s.number, available=s.id not in taken)
+        for s in room.seats
+    ]
+    return SeatMap(
+        showtime_id=showtime_id,
+        room=room.name,
+        capacity=room.capacity,
+        available_count=sum(1 for s in seats if s.available),
+        seats=seats,
+    )
