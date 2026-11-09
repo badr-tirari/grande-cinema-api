@@ -2,6 +2,11 @@
 
 from datetime import UTC
 
+import pytest
+
+from app.models import User
+from app.services.booking import BookingError, create_booking
+
 
 def book(client, headers, showtime_id, seat_ids):
     return client.post(
@@ -52,6 +57,27 @@ def test_max_seats_per_booking(client, data, user_headers, monkeypatch):
 
     monkeypatch.setattr(config.get_settings(), "max_seats_per_booking", 2)
     assert book(client, user_headers, data["future"].id, data["seats"][:3]).status_code == 400
+
+
+def test_concurrent_booking_is_blocked_by_database(db_session, data):
+    """Bug potentiel (Dossier 3) : deux réservations simultanées de la même place.
+
+    On simule la course : la vérification applicative est contournée pour la 2e
+    réservation, seule la contrainte d'unicité `uq_seat_per_showtime` protège.
+    """
+    from app.services import booking as svc
+
+    users = db_session.query(User).all()
+    create_booking(db_session, users[0], data["future"].id, [data["seats"][0]])
+
+    original = svc.booked_seat_ids
+    svc.booked_seat_ids = lambda db, showtime_id: set()  # la 2e requête « n'a pas vu » la 1re
+    try:
+        with pytest.raises(BookingError) as exc:
+            create_booking(db_session, users[1], data["future"].id, [data["seats"][0]])
+    finally:
+        svc.booked_seat_ids = original
+    assert exc.value.status_code == 409
 
 
 def test_my_bookings_and_ticket(client, data, user_headers, other_headers):
