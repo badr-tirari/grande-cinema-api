@@ -178,6 +178,9 @@ def list_bookings(
 
 
 # --- Taux de remplissage (US09) ---------------------------------------------------------
+SLOT_ORDER = ["Matin (< 14h)", "Après-midi (14h-18h)", "Soirée (18h-21h)", "Nuit (>= 21h)"]
+
+
 def slot_of(starts_at: datetime) -> str:
     """Regroupe les séances par créneau (heure locale du cinéma) pour repérer les pics."""
     hour = as_utc(starts_at).astimezone(get_settings().tz).hour
@@ -246,6 +249,6 @@ def occupancy(
         by_showtime=items,
         by_slot=[
             SlotOccupancy(slot=k, showtimes=v[0], booked=v[1], capacity=v[2], occupancy_rate=rate(v[1], v[2]))
-            for k, v in sorted(slots.items())
+            for k, v in sorted(slots.items(), key=lambda kv: SLOT_ORDER.index(kv[0]))
         ],
     )
