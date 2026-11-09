@@ -3,14 +3,18 @@
 Toutes les routes exigent le rôle ADMIN (dépendance `require_admin` au niveau du routeur).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import require_admin
 from app.db import get_db
-from app.models import Booking, Movie, Room, Showtime
+from app.models import Booking, BookingStatus, Movie, Room, Showtime
+from app.routers.bookings import to_out
 from app.schemas import (
+    BookingOut,
     MovieCreate,
     MovieOut,
     MovieUpdate,
@@ -24,6 +28,8 @@ from app.services.booking import (
     check_room_free,
     count_booked,
     ends_at_for,
+    load_booking,
+    local_day_bounds,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["Administration"], dependencies=[Depends(require_admin)])
@@ -145,4 +151,22 @@ def delete_showtime(showtime_id: int, db: Session = Depends(get_db)) -> Response
 
 
 # --- Suivi des réservations (US08) ---------------------------------------------------
+@router.get("/bookings", response_model=list[BookingOut])
+def list_bookings(
+    showtime_id: int | None = None,
+    day: date | None = Query(default=None, description="Jour de la séance (AAAA-MM-JJ)"),
+    booking_status: BookingStatus | None = Query(default=None, alias="status"),
+    db: Session = Depends(get_db),
+) -> list[BookingOut]:
+    stmt = select(Booking.id).join(Showtime).order_by(Booking.created_at.desc())
+    if showtime_id:
+        stmt = stmt.where(Booking.showtime_id == showtime_id)
+    if day:
+        start, end = local_day_bounds(day)
+        stmt = stmt.where(Showtime.starts_at >= start, Showtime.starts_at < end)
+    if booking_status:
+        stmt = stmt.where(Booking.status == booking_status)
+    return [to_out(load_booking(db, i), with_email=True) for i in db.scalars(stmt)]
+
+
 # --- Taux de remplissage (US09) ---------------------------------------------------------
