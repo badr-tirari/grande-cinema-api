@@ -158,3 +158,32 @@ def test_slot_and_rate_helpers():
     assert slot_of(datetime(2026, 7, 1, 19, tzinfo=PARIS)) == "Soirée (18h-21h)"
     assert slot_of(datetime(2026, 7, 1, 22, tzinfo=PARIS)) == "Nuit (>= 21h)"
     assert rate(0, 0) == 0.0
+
+
+def test_paris_evening_showtime_is_stored_and_read_in_utc(client, db_session, data, admin_headers):
+    """Régression : SQLite perdait le fuseau, 20h45 Paris devenait 20h45 UTC (créneau « Nuit »)."""
+    from app.models import Showtime
+    from app.services.booking import ends_at_for
+
+    start = (datetime.now(PARIS) + timedelta(days=5)).replace(hour=20, minute=45, second=0, microsecond=0)
+    show = Showtime(
+        movie_id=data["movie"].id,
+        room_id=data["room"].id,
+        starts_at=start,
+        ends_at=ends_at_for(start, 90),
+        price_cents=990,
+    )
+    db_session.add(show)
+    db_session.commit()
+    db_session.expire_all()
+
+    reread = db_session.get(Showtime, show.id).starts_at
+    assert reread.tzinfo is not None
+    assert reread == start
+    report = client.get("/api/admin/stats/occupancy", headers=admin_headers).json()
+    assert [s["slot"] for s in report["by_slot"]] == sorted(
+        (s["slot"] for s in report["by_slot"]),
+        key=["Matin (< 14h)", "Après-midi (14h-18h)", "Soirée (18h-21h)", "Nuit (>= 21h)"].index,
+    )
+    item = next(i for i in report["by_showtime"] if i["showtime_id"] == show.id)
+    assert item["starts_at"].startswith(start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M"))
