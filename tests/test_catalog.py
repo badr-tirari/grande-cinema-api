@@ -34,5 +34,21 @@ def test_list_showtimes_filters(client, data):
     assert client.get("/api/showtimes", params={"movie_id": 999}).json() == []
 
 
+def test_seat_map_reflects_bookings(client, data, user_headers):
+    url = f"/api/showtimes/{data['future'].id}/seats"
+    before = client.get(url).json()
+    assert before["capacity"] == 6 and before["available_count"] == 6
+
+    client.post(
+        "/api/bookings",
+        json={"showtime_id": data["future"].id, "seat_ids": data["seats"][:2]},
+        headers=user_headers,
+    )
+    after = client.get(url).json()
+    assert after["available_count"] == 4
+    taken = {s["seat_id"] for s in after["seats"] if not s["available"]}
+    assert taken == set(data["seats"][:2])
+
+
 def test_seat_map_unknown_showtime(client):
     assert client.get("/api/showtimes/999/seats").status_code == 404
