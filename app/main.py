@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, engine
-from app.routers import auth, bookings, catalog
+from app.routers import admin, auth, bookings, catalog
 
 settings = get_settings()
 
@@ -18,6 +18,7 @@ TAGS = [
     {"name": "Authentification", "description": "US01 — inscription, connexion JWT, profil."},
     {"name": "Catalogue", "description": "US02/US03 — films, séances et plan de salle (public)."},
     {"name": "Réservations", "description": "US04/US05/US06 — réserver, billet, annuler."},
+    {"name": "Administration", "description": "US07/US08/US09 — programmation, suivi, remplissage (ADMIN)."},
 ]
 
 
@@ -47,6 +48,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(catalog.router)
 app.include_router(bookings.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", tags=["Supervision"])
