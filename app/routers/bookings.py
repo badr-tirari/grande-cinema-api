@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db import get_db
-from app.models import Booking, User
+from app.models import Booking, Role, User
 from app.schemas import BookedSeatOut, BookingCreate, BookingOut
 from app.services.booking import BookingError, create_booking, load_booking
 
@@ -31,6 +31,14 @@ def to_out(booking: Booking, with_email: bool = False) -> BookingOut:
     )
 
 
+def _owned_booking(db: Session, booking_id: int, user: User) -> Booking:
+    booking = load_booking(db, booking_id)
+    # 404 (et non 403) pour ne pas révéler l'existence des réservations d'autrui.
+    if booking is None or (booking.user_id != user.id and user.role != Role.ADMIN):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Réservation introuvable")
+    return booking
+
+
 @router.post("", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def book(payload: BookingCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Réserve une ou plusieurs places. 409 si une place est déjà prise."""
@@ -39,3 +47,9 @@ def book(payload: BookingCreate, user: User = Depends(get_current_user), db: Ses
     except BookingError as exc:
         raise HTTPException(exc.status_code, exc.message) from None
     return to_out(load_booking(db, booking.id))
+
+
+@router.get("/{booking_id}", response_model=BookingOut)
+def get_ticket(booking_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Billet dématérialisé : le `code` est encodé en QR code par le front."""
+    return to_out(_owned_booking(db, booking_id, user))
