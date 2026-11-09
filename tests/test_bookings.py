@@ -50,3 +50,12 @@ def test_max_seats_per_booking(client, data, user_headers, monkeypatch):
 
     monkeypatch.setattr(config.get_settings(), "max_seats_per_booking", 2)
     assert book(client, user_headers, data["future"].id, data["seats"][:3]).status_code == 400
+
+
+def test_my_bookings_and_ticket(client, data, user_headers, other_headers):
+    created = book(client, user_headers, data["future"].id, [data["seats"][0]]).json()
+    ticket = client.get(f"/api/bookings/{created['id']}", headers=user_headers)
+    assert ticket.status_code == 200
+    assert ticket.json()["movie_title"] == "Blue Note Nights"
+    # Un autre spectateur ne peut pas voir ce billet.
+    assert client.get(f"/api/bookings/{created['id']}", headers=other_headers).status_code == 404
