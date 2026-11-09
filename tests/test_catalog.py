@@ -32,3 +32,7 @@ def test_list_showtimes_filters(client, data):
     by_day = client.get("/api/showtimes", params={"day": day}).json()
     assert [s["id"] for s in by_day] == [data["past"].id]
     assert client.get("/api/showtimes", params={"movie_id": 999}).json() == []
+
+
+def test_seat_map_unknown_showtime(client):
+    assert client.get("/api/showtimes/999/seats").status_code == 404
